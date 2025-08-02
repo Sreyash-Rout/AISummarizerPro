@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Summarizer Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 380px;
+            min-height: 500px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            overflow-x: hidden;
+        }
+
+        .container {
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .logo {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            border-radius: 50%;
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        h1 {
+            font-size: 20px;
+            margin-bottom: 5px;
+            background: linear-gradient(45deg, #fff, #e0e0e0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subtitle {
+            opacity: 0.8;
+            font-size: 12px;
+        }
+
+        .tabs {
+            display: flex;
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .tab {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .tab.active {
+            background: rgba(255,255,255,0.2);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .feature-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-2px);
+            background: rgba(255,255,255,0.15);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+
+        .feature-icon {
+            font-size: 24px;
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .feature-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .feature-desc {
+            font-size: 10px;
+            opacity: 0.8;
+        }
+
+        .quick-actions {
+            margin-bottom: 20px;
+        }
+
+        .action-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a52);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+            box-shadow: 0 4px 15px rgba(255,107,107,0.3);
+        }
+
+        .action-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255,107,107,0.4);
+        }
+
+        .action-btn.secondary {
+            background: linear-gradient(45deg, #4ecdc4, #44a08d);
+            box-shadow: 0 4px 15px rgba(78,205,196,0.3);
+        }
+
+        .action-btn.secondary:hover {
+            box-shadow: 0 6px 20px rgba(78,205,196,0.4);
+        }
+
+        .settings-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .settings-item:last-child {
+            border-bottom: none;
+        }
+
+        .toggle {
+            width: 40px;
+            height: 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .toggle.active {
+            background: #4ecdc4;
+        }
+
+        .toggle::after {
+            content: '';
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .toggle.active::after {
+            left: 22px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 12px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 18px;
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            opacity: 0.8;
+            margin-top: 4px;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            width: 30px;
+            height: 30px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .summary-output {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .summary-output::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .summary-output::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+        }
+
+        .summary-output::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 2px;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: white;
+            cursor: pointer;
+            font-size: 10px;
+            transition: all 0.3s ease;
+        }
+
+        .copy-btn:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            font-size: 10px;
+            opacity: 0.6;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">✨</div>
+            <h1>AI Summarizer Pro</h1>
+            <div class="subtitle">Intelligent Content Summary</div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="summarize">📝 Summarize</div>
+            <div class="tab" data-tab="settings">⚙️ Settings</div>
+            <div class="tab" data-tab="stats">📊 Stats</div>
+        </div>
+
+        <!-- Summarize Tab -->
+        <div id="summarize" class="tab-content active">
+            <div class="feature-grid">
+                <div class="feature-card" id="pageSum">
+                    <span class="feature-icon">📄</span>
+                    <div class="feature-title">Page Summary</div>
+                    <div class="feature-desc">Summarize entire page</div>
+                </div>
+                <div class="feature-card" id="selectedSum">
+                    <span class="feature-icon">🔍</span>
+                    <div class="feature-title">Selected Text</div>
+                    <div class="feature-desc">Summarize selection</div>
+                </div>
+                <div class="feature-card" id="quickSum">
+                    <span class="feature-icon">⚡</span>
+                    <div class="feature-title">Quick Mode</div>
+                    <div class="feature-desc">Fast summary</div>
+                </div>
+                <div class="feature-card" id="detailedSum">
+                    <span class="feature-icon">📋</span>
+                    <div class="feature-title">Detailed</div>
+                    <div class="feature-desc">In-depth analysis</div>
+                </div>
+            </div>
+
+            <div class="quick-actions">
+                <button class="action-btn" id="summarizeBtn">🚀 Smart Summarize</button>
+                <button class="action-btn secondary" id="keyPointsBtn">💡 Extract Key Points</button>
+            </div>
+
+            <div id="summaryResult" class="summary-output hidden">
+                <button class="copy-btn" id="copyBtn">📋 Copy</button>
+                <div id="summaryText"></div>
+            </div>
+
+            <div id="loadingIndicator" class="loading hidden">
+                <div class="spinner"></div>
+                <span style="margin-left: 10px;">Analyzing content...</span>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="settings-item">
+                <div>
+                    <div style="font-weight: 600;">AI Provider</div>
+                    <div style="font-size: 11px; opacity: 0.7;">Choose summarization method</div>
+                </div>
+                <select id="aiProvider" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; padding: 6px; font-size: 12px;">
+                    <option value="local">Local Processing</option>
+                    <option value="gemini">Google Gemini</option>
+                </select>
+            </div>
+            
+            <div id="geminiConfig" class="settings-item" style="display: none; flex-direction: column; gap: 10px;">
+                <div>
+                    <div style="font-weight: 600;">Gemini API Key</div>
+                    <div style="font-size: 11px; opacity: 0.7;">Get your key from <a href="https://makersuite.google.com/app/apikey" target="_blank" style="color: #4ecdc4;">Google AI Studio</a></div>
+                </div>
+                <input type="password" id="geminiApiKey" placeholder="Enter your Gemini API key..." style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; color: white; padding: 8px; font-size: 12px; width: 100%;">
+                <button id="saveApiKey" style="background: linear-gradient(45deg, #4ecdc4, #44a08d); border: none; border-radius: 6px; color: white; padding: 6px 12px; font-size: 11px; cursor: pointer;">💾 Save Key</button>
+            </div>
+            
+            <div class="settings-item">
+                <div>
+                    <div style="font-weight: 600;">Auto-summarize</div>
+                    <div style="font-size: 11px; opacity: 0.7;">Automatically summarize pages</div>
+                </div>
+                <div class="toggle" id="autoSummarize"></div>
+            </div>
+            <div class="settings-item">
+                <div>
+                    <div style="font-weight: 600;">Show floating button</div>
+                    <div style="font-size: 11px; opacity: 0.7;">Display quick access button</div>
+                </div>
+                <div class="toggle active" id="floatingBtn"></div>
+            </div>
+            <div class="settings-item">
+                <div>
+                    <div style="font-weight: 600;">Dark mode</div>
+                    <div style="font-size: 11px; opacity: 0.7;">Use dark theme</div>
+                </div>
+                <div class="toggle" id="darkMode"></div>
+            </div>
+            <div class="settings-item">
+                <div>
+                    <div style="font-weight: 600;">Context menu</div>
+                    <div style="font-size: 11px; opacity: 0.7;">Right-click summarize option</div>
+                </div>
+                <div class="toggle active" id="contextMenu"></div>
+            </div>
+        </div>
+
+        <!-- Stats Tab -->
+        <div id="stats" class="tab-content">
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-number" id="totalSummaries">0</div>
+                    <div class="stat-label">Summaries</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="timesSaved">0</div>
+                    <div class="stat-label">Time Saved</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="wordsProcessed">0</div>
+                    <div class="stat-label">Words</div>
+                </div>
+            </div>
+            
+            <button class="action-btn" id="exportBtn">📤 Export Summaries</button>
+            <button class="action-btn secondary" id="clearDataBtn">🗑️ Clear Data</button>
+        </div>
+
+        <div class="footer">
+            Made with ❤️ for productivity
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
