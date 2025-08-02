@@ -5,14 +5,24 @@ class AISummarizer {
         this.floatingButton = null;
         this.modal = null;
         this.selectionTooltip = null;
+        this.isDarkMode = false;
         this.init();
     }
 
     async init() {
         try {
             // Load settings
-            const settings = await chrome.storage.sync.get(['floatingBtn', 'autoSummarize']);
+            const settings = await chrome.storage.sync.get([
+                'floatingBtn', 
+                'autoSummarize', 
+                'darkMode', 
+                'contextMenu'
+            ]);
 
+            // Apply dark mode
+            this.isDarkMode = settings.darkMode || false;
+
+            // Create components based on settings
             if (settings.floatingBtn !== false) {
                 this.createFloatingButton();
             }
@@ -21,7 +31,7 @@ class AISummarizer {
                 setTimeout(() => this.autoSummarize(), 3000);
             }
 
-            // Listen for messages from popup
+            // Listen for messages from popup and background
             chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 return this.handleMessage(request, sender, sendResponse);
             });
@@ -69,6 +79,54 @@ class AISummarizer {
         }
     }
 
+    // Handle setting updates from popup
+    updateSetting(setting, value) {
+        switch (setting) {
+            case 'floatingBtn':
+                if (value) {
+                    if (!this.floatingButton) {
+                        this.createFloatingButton();
+                    }
+                } else {
+                    if (this.floatingButton) {
+                        this.floatingButton.remove();
+                        this.floatingButton = null;
+                    }
+                }
+                break;
+
+            case 'darkMode':
+                this.isDarkMode = value;
+                this.applyDarkMode(value);
+                if (this.modal) {
+                    this.updateModalTheme();
+                }
+                if (this.floatingButton) {
+                    this.updateFloatingButtonTheme();
+                }
+                break;
+
+            case 'autoSummarize':
+                if (value) {
+                    // Auto-summarize is now enabled
+                    setTimeout(() => this.autoSummarize(), 1000);
+                }
+                break;
+        }
+    }
+
+    applyDarkMode(isDark) {
+        if (isDark) {
+            document.documentElement.style.setProperty('--ai-summarizer-bg', 'linear-gradient(135deg, #2d3748 0%, #1a202c 100%)');
+            document.documentElement.style.setProperty('--ai-summarizer-text', '#e2e8f0');
+            document.documentElement.style.setProperty('--ai-summarizer-accent', 'rgba(255,255,255,0.1)');
+        } else {
+            document.documentElement.style.setProperty('--ai-summarizer-bg', 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
+            document.documentElement.style.setProperty('--ai-summarizer-text', 'white');
+            document.documentElement.style.setProperty('--ai-summarizer-accent', 'rgba(255,255,255,0.1)');
+        }
+    }
+
     createFloatingButton() {
         // Remove existing button
         if (this.floatingButton) {
@@ -78,13 +136,13 @@ class AISummarizer {
         const button = document.createElement('div');
         button.id = 'ai-summarizer-floating-btn';
         button.innerHTML = '✨';
-        button.style.cssText = `
+        
+        const baseStyles = `
             position: fixed;
             top: 20px;
             right: 20px;
             width: 50px;
             height: 50px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border-radius: 50%;
             display: flex;
@@ -98,6 +156,8 @@ class AISummarizer {
             user-select: none;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         `;
+        
+        button.style.cssText = baseStyles + this.getThemeStyles();
 
         button.addEventListener('mouseenter', () => {
             button.style.transform = 'scale(1.1)';
@@ -120,6 +180,24 @@ class AISummarizer {
 
         document.body.appendChild(button);
         this.floatingButton = button;
+    }
+
+    getThemeStyles() {
+        if (this.isDarkMode) {
+            return 'background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%);';
+        } else {
+            return 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);';
+        }
+    }
+
+    updateFloatingButtonTheme() {
+        if (this.floatingButton) {
+            const themeStyle = this.getThemeStyles();
+            const currentStyle = this.floatingButton.style.cssText;
+            // Replace background style
+            const newStyle = currentStyle.replace(/background:[^;]+;/, themeStyle);
+            this.floatingButton.style.cssText = newStyle;
+        }
     }
 
     makeDraggable(element) {
@@ -177,12 +255,17 @@ class AISummarizer {
 
         const modalContent = document.createElement('div');
         modalContent.className = 'modal-content';
+        
+        const modalBg = this.isDarkMode ? 
+            'linear-gradient(135deg, #2d3748 0%, #1a202c 100%)' : 
+            'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+            
         modalContent.style.cssText = `
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: ${modalBg};
             padding: 30px;
             border-radius: 20px;
             max-width: 600px;
@@ -261,6 +344,18 @@ class AISummarizer {
         });
     }
 
+    updateModalTheme() {
+        if (this.modal) {
+            const modalContent = this.modal.querySelector('.modal-content');
+            if (modalContent) {
+                const modalBg = this.isDarkMode ? 
+                    'linear-gradient(135deg, #2d3748 0%, #1a202c 100%)' : 
+                    'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                modalContent.style.background = modalBg;
+            }
+        }
+    }
+
     async showQuickSummary() {
         this.showModal();
         const result = await this.summarizeContent('pageSum');
@@ -296,27 +391,14 @@ class AISummarizer {
             setTimeout(() => {
                 btn.textContent = originalText;
             }, 2000);
-        }).catch(() => {
-            // Fallback for older browsers
-            const textArea = document.createElement('textarea');
-            textArea.value = summaryText;
-            document.body.appendChild(textArea);
-            textArea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textArea);
-            
-            const btn = document.getElementById('copy-summary');
-            const originalText = btn.textContent;
-            btn.textContent = '✅ Copied!';
-            setTimeout(() => {
-                btn.textContent = originalText;
-            }, 2000);
+        }).catch(error => {
+            console.error('Copy failed:', error);
         });
     }
 
     async saveSummary() {
-        const summaryText = document.getElementById('summary-text').textContent;
         try {
+            const summaryText = document.getElementById('summary-text').textContent;
             const data = await chrome.storage.local.get(['savedSummaries']);
             const saved = data.savedSummaries || [];
 
@@ -327,11 +409,6 @@ class AISummarizer {
                 timestamp: Date.now()
             });
 
-            // Keep only last 50 saved summaries
-            if (saved.length > 50) {
-                saved.splice(50);
-            }
-
             await chrome.storage.local.set({ savedSummaries: saved });
 
             const btn = document.getElementById('save-summary');
@@ -341,27 +418,23 @@ class AISummarizer {
                 btn.textContent = originalText;
             }, 2000);
         } catch (error) {
-            console.error('Error saving summary:', error);
+            console.error('Save failed:', error);
         }
     }
 
     async summarizeText(text) {
         if (!text || text.trim().length < 20) {
             this.showModal();
-            this.displayModalSummary('⚠️ Please select a longer passage of text to summarize (at least 20 characters).');
+            this.displayModalSummary('⚠️ Please select a longer passage of text to summarize.');
             return;
         }
         this.showModal();
         const result = await this.summarizeRawText(text);
-        if (result && result.success) {
-            this.displayModalSummary(result.summary);
-        } else {
-            this.displayModalSummary('❌ Failed to generate summary. ' + (result?.error || 'Unknown error occurred.'));
-        }
+        this.displayModalSummary(result.summary || '❌ Failed to generate summary.');
     }
 
     async summarizeRawText(text) {
-        return new Promise((resolve) => {
+        return await new Promise((resolve) => {
             chrome.runtime.sendMessage({
                 action: 'getSummary',
                 content: text,
@@ -371,7 +444,6 @@ class AISummarizer {
                 }
             }, (response) => {
                 if (chrome.runtime.lastError) {
-                    console.error('Runtime error:', chrome.runtime.lastError);
                     resolve({ success: false, error: chrome.runtime.lastError.message });
                 } else {
                     resolve(response || { success: false, error: 'No response received' });
@@ -387,8 +459,8 @@ class AISummarizer {
             switch (mode) {
                 case 'selectedSum':
                     content = this.getSelectedText();
-                    if (!content || content.trim().length < 20) {
-                        return { success: false, error: 'No text selected or selection too short. Please select at least 20 characters.' };
+                    if (!content) {
+                        return { success: false, error: 'No text selected' };
                     }
                     break;
                 case 'pageSum':
@@ -397,8 +469,8 @@ class AISummarizer {
                     break;
             }
 
-            if (!content || content.trim().length < 50) {
-                return { success: false, error: 'Insufficient content to summarize. Please ensure the page contains readable text.' };
+            if (!content || content.length < 50) {
+                return { success: false, error: 'Insufficient content to summarize' };
             }
 
             // Send to background script for AI processing
@@ -412,10 +484,11 @@ class AISummarizer {
                     }
                 }, (response) => {
                     if (chrome.runtime.lastError) {
-                        console.error('Runtime error:', chrome.runtime.lastError);
                         resolve({ success: false, error: chrome.runtime.lastError.message });
+                    } else if (!response) {
+                        resolve({ success: false, error: 'No response received from background script' });
                     } else {
-                        resolve(response || { success: false, error: 'No response received from background script' });
+                        resolve(response);
                     }
                 });
             });
@@ -423,7 +496,6 @@ class AISummarizer {
             return result;
 
         } catch (error) {
-            console.error('Summarization error:', error);
             return { success: false, error: error.message };
         }
     }
@@ -432,8 +504,8 @@ class AISummarizer {
         try {
             const content = this.getSelectedText() || this.getPageContent();
 
-            if (!content || content.trim().length < 50) {
-                return { success: false, error: 'Insufficient content to analyze. Please provide more text.' };
+            if (!content || content.length < 50) {
+                return { success: false, error: 'Insufficient content to analyze' };
             }
 
             // Try AI-powered key point extraction first
@@ -470,106 +542,48 @@ class AISummarizer {
             };
 
         } catch (error) {
-            console.error('Key points extraction error:', error);
             return { success: false, error: error.message };
         }
     }
 
     getPageContent() {
-        try {
-            // Priority content selectors
-            const contentSelectors = [
-                'article',
-                '[role="main"]',
-                '.content',
-                '.post-content',
-                '.entry-content',
-                '.article-content',
-                'main',
-                '.main-content',
-                '.post-body',
-                '.story-body'
-            ];
+        // Remove script and style elements
+        const clone = document.cloneNode(true);
+        const scripts = clone.querySelectorAll('script, style, nav, footer, aside, .ad, .advertisement, #ai-summarizer-floating-btn, #ai-summarizer-modal');
+        scripts.forEach(el => el.remove());
 
-            let content = '';
+        // Priority content selectors
+        const contentSelectors = [
+            'article',
+            '[role="main"]',
+            '.content',
+            '.post-content',
+            '.entry-content',
+            '.article-content',
+            'main',
+            '.main-content',
+            '.story-body',
+            '.article-body'
+        ];
 
-            // Try to find main content area
-            for (const selector of contentSelectors) {
-                const element = document.querySelector(selector);
-                if (element) {
-                    content = this.extractTextFromElement(element);
-                    if (content && content.length > 100) {
-                        break;
-                    }
-                }
-            }
+        let content = '';
 
-            // Fallback to body content if no main content found
-            if (!content || content.length < 100) {
-                const bodyClone = document.body.cloneNode(true);
-                
-                // Remove unwanted elements
-                const unwantedSelectors = [
-                    'script', 'style', 'nav', 'footer', 'aside', 'header',
-                    '.ad', '.advertisement', '.ads', '.sidebar', '.menu',
-                    '.comments', '.social-share', '.related-posts',
-                    '#ai-summarizer-modal', '#ai-summarizer-floating-btn'
-                ];
-                
-                unwantedSelectors.forEach(selector => {
-                    const elements = bodyClone.querySelectorAll(selector);
-                    elements.forEach(el => el.remove());
-                });
-
-                content = this.extractTextFromElement(bodyClone);
-            }
-
-            return this.cleanText(content);
-        } catch (error) {
-            console.error('Error getting page content:', error);
-            return '';
-        }
-    }
-
-    extractTextFromElement(element) {
-        if (!element) return '';
-        
-        // Get text content while preserving some structure
-        let text = '';
-        const walker = document.createTreeWalker(
-            element,
-            NodeFilter.SHOW_TEXT,
-            {
-                acceptNode: function(node) {
-                    // Skip text nodes in script, style, and other non-content elements
-                    const parent = node.parentElement;
-                    if (!parent) return NodeFilter.FILTER_REJECT;
-                    
-                    const tagName = parent.tagName.toLowerCase();
-                    if (['script', 'style', 'noscript', 'iframe'].includes(tagName)) {
-                        return NodeFilter.FILTER_REJECT;
-                    }
-                    
-                    // Skip very short text nodes and whitespace-only nodes
-                    const textContent = node.textContent.trim();
-                    if (textContent.length < 3) {
-                        return NodeFilter.FILTER_REJECT;
-                    }
-                    
-                    return NodeFilter.FILTER_ACCEPT;
-                }
-            }
-        );
-
-        let node;
-        while (node = walker.nextNode()) {
-            const textContent = node.textContent.trim();
-            if (textContent) {
-                text += textContent + ' ';
+        // Try to find main content area
+        for (const selector of contentSelectors) {
+            const element = clone.querySelector(selector);
+            if (element) {
+                content = element.textContent || element.innerText || '';
+                break;
             }
         }
 
-        return text.trim();
+        // Fallback to body content
+        if (!content) {
+            content = clone.body ? (clone.body.textContent || clone.body.innerText || '') : '';
+        }
+
+        // Clean up the content
+        return this.cleanText(content);
     }
 
     getSelectedText() {
@@ -578,12 +592,10 @@ class AISummarizer {
     }
 
     cleanText(text) {
-        if (!text) return '';
-        
         return text
             .replace(/\s+/g, ' ')
             .replace(/\n\s*\n/g, '\n')
-            .replace(/[^\w\s.,!?;:()\-'"]/g, '')
+            .replace(/[^\w\s.,!?;:()\-"']/g, '') // Remove unusual characters
             .trim();
     }
 
@@ -623,24 +635,24 @@ class AISummarizer {
     }
 
     handleTextSelection() {
-        // Debounce the selection handling
-        clearTimeout(this.selectionTimeout);
-        this.selectionTimeout = setTimeout(() => {
+        setTimeout(() => {
             const selectedText = this.getSelectedText();
-
             if (selectedText && selectedText.length > 20) {
                 this.showSelectionTooltip();
             } else {
                 this.hideSelectionTooltip();
             }
-        }, 300);
+        }, 100);
     }
 
     handleSelectionChange() {
         // Hide tooltip when selection changes
-        if (!this.getSelectedText()) {
-            this.hideSelectionTooltip();
-        }
+        setTimeout(() => {
+            const selectedText = this.getSelectedText();
+            if (!selectedText || selectedText.length <= 20) {
+                this.hideSelectionTooltip();
+            }
+        }, 100);
     }
 
     showSelectionTooltip() {
@@ -653,16 +665,19 @@ class AISummarizer {
         const range = selection.getRangeAt(0);
         const rect = range.getBoundingClientRect();
 
-        if (rect.width === 0 && rect.height === 0) return;
-
         const tooltip = document.createElement('div');
         tooltip.id = 'ai-summarizer-tooltip';
         tooltip.innerHTML = '✨ Summarize';
+        
+        const tooltipBg = this.isDarkMode ? 
+            'linear-gradient(45deg, #4a5568, #2d3748)' : 
+            'linear-gradient(45deg, #667eea, #764ba2)';
+            
         tooltip.style.cssText = `
             position: absolute;
             top: ${window.scrollY + rect.top - 35}px;
             left: ${window.scrollX + rect.left + rect.width / 2 - 50}px;
-            background: linear-gradient(45deg, #667eea, #764ba2);
+            background: ${tooltipBg};
             color: white;
             padding: 8px 15px;
             border-radius: 20px;
@@ -671,21 +686,15 @@ class AISummarizer {
             cursor: pointer;
             z-index: 10000;
             box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             user-select: none;
             animation: fadeInUp 0.3s ease;
-            white-space: nowrap;
         `;
 
-        tooltip.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
+        tooltip.addEventListener('click', async () => {
             this.hideSelectionTooltip();
-            await this.summarizeText(this.getSelectedText());
-        });
-
-        tooltip.addEventListener('mousedown', (e) => {
-            e.preventDefault();
+            const selectedText = this.getSelectedText();
+            await this.summarizeText(selectedText);
         });
 
         document.body.appendChild(tooltip);
@@ -703,47 +712,79 @@ class AISummarizer {
     }
 
     async autoSummarize() {
-        try {
-            // Only auto-summarize on article pages
-            const isArticle = document.querySelector('article') ||
-                document.querySelector('[role="main"]') ||
-                document.querySelector('.post-content') ||
-                document.querySelector('.entry-content') ||
-                document.querySelector('.article-content');
+        // Only auto-summarize on article pages
+        const isArticle = document.querySelector('article') ||
+            document.querySelector('[role="main"]') ||
+            document.querySelector('.post-content') ||
+            document.querySelector('.entry-content') ||
+            document.querySelector('.story-body') ||
+            document.querySelector('.article-body');
 
-            if (!isArticle) return;
+        if (!isArticle) return;
 
-            const content = this.getPageContent();
-            if (content.length < 500) return; // Too short to be worth summarizing
+        const content = this.getPageContent();
+        if (content.length < 500) return; // Too short to be worth summarizing
 
-            // Show notification
-            this.showAutoSummaryNotification();
-        } catch (error) {
-            console.error('Auto-summarize error:', error);
-        }
+        // Check if this is a readable URL
+        if (!this.isReadableUrl(window.location.href)) return;
+
+        // Show notification
+        this.showAutoSummaryNotification();
+    }
+
+    isReadableUrl(url) {
+        const readablePatterns = [
+            /\/article/i,
+            /\/blog/i,
+            /\/news/i,
+            /\/post/i,
+            /\/story/i,
+            /medium\.com/i,
+            /\.html$/i
+        ];
+
+        const unreadablePatterns = [
+            /google\.com\/search/i,
+            /youtube\.com/i,
+            /facebook\.com/i,
+            /twitter\.com/i,
+            /instagram\.com/i,
+            /tiktok\.com/i,
+            /reddit\.com\/r\/[^\/]+\/?$/i // Reddit main pages
+        ];
+
+        return readablePatterns.some(pattern => pattern.test(url)) &&
+               !unreadablePatterns.some(pattern => pattern.test(url));
     }
 
     showAutoSummaryNotification() {
+        // Remove existing notification
+        const existing = document.getElementById('ai-summarizer-auto-notification');
+        if (existing) existing.remove();
+
         const notification = document.createElement('div');
-        notification.className = 'ai-summarizer-notification';
+        notification.id = 'ai-summarizer-auto-notification';
+        
+        const notificationBg = this.isDarkMode ? 
+            'linear-gradient(45deg, #4a5568, #2d3748)' : 
+            'linear-gradient(45deg, #667eea, #764ba2)';
+            
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: linear-gradient(45deg, #667eea, #764ba2);
+            background: ${notificationBg};
             color: white;
             padding: 15px 25px;
             border-radius: 25px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: 'Segoe UI', sans-serif;
             font-size: 14px;
             font-weight: 600;
             z-index: 10000;
             box-shadow: 0 4px 20px rgba(0,0,0,0.3);
             cursor: pointer;
             animation: slideInDown 0.5s ease;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
         `;
 
         notification.innerHTML = '✨ Click to get AI summary of this page';
@@ -767,39 +808,13 @@ class AISummarizer {
             }
         }, 5000);
     }
-
-    updateSetting(setting, value) {
-        switch (setting) {
-            case 'floatingBtn':
-                if (value) {
-                    this.createFloatingButton();
-                } else if (this.floatingButton) {
-                    this.floatingButton.remove();
-                    this.floatingButton = null;
-                }
-                break;
-        }
-    }
-
-    // Methods for background script integration
-    quickSummary() {
-        this.showQuickSummary();
-    }
 }
 
 // Initialize the summarizer when DOM is ready
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-        try {
-            new AISummarizer();
-        } catch (error) {
-            console.error('Failed to initialize AISummarizer:', error);
-        }
+        new AISummarizer();
     });
 } else {
-    try {
-        new AISummarizer();
-    } catch (error) {
-        console.error('Failed to initialize AISummarizer:', error);
-    }
+    new AISummarizer();
 }
