@@ -1,4 +1,4 @@
-// AI Summarizer Pro - Popup Script
+// AI Summarizer Pro - Popup Script (FIXED)
 class PopupController {
     constructor() {
         this.init();
@@ -15,7 +15,7 @@ class PopupController {
             tab.addEventListener('click', () => this.switchTab(tab));
         });
 
-        // Toggle switches - FIXED
+        // Toggle switches
         document.querySelectorAll('.toggle').forEach(toggle => {
             toggle.addEventListener('click', () => this.handleToggle(toggle));
         });
@@ -25,9 +25,9 @@ class PopupController {
             card.addEventListener('click', () => this.selectFeature(card));
         });
 
-        // Main action buttons
+        // Main action buttons - FIXED TO USE DIFFERENT ACTIONS
         document.getElementById('summarizeBtn').addEventListener('click', () => this.handleSummarize());
-        document.getElementById('keyPointsBtn').addEventListener('click', () => this.handleKeyPoints());
+        document.getElementById('keyPointsBtn').addEventListener('click', () => this.handleKeyPoints()); 
         document.getElementById('copyBtn').addEventListener('click', () => this.handleCopy());
         document.getElementById('exportBtn').addEventListener('click', () => this.handleExport());
         document.getElementById('clearDataBtn').addEventListener('click', () => this.handleClearData());
@@ -46,7 +46,6 @@ class PopupController {
         document.getElementById(tab.dataset.tab).classList.add('active');
     }
 
-    // FIXED: Toggle handling with proper functionality
     async handleToggle(toggle) {
         const setting = toggle.id;
         const wasActive = toggle.classList.contains('active');
@@ -79,7 +78,6 @@ class PopupController {
         }
     }
 
-    // Handle specific toggle features
     async handleToggleFeature(setting, isActive) {
         switch (setting) {
             case 'floatingBtn':
@@ -100,10 +98,8 @@ class PopupController {
         }
     }
 
-    // Floating button toggle
     async handleFloatingButtonToggle(isActive) {
         try {
-            // Send message to all active tabs
             const tabs = await chrome.tabs.query({});
             
             for (const tab of tabs) {
@@ -114,12 +110,10 @@ class PopupController {
                         value: isActive
                     });
                 } catch (error) {
-                    // Tab might not have content script, ignore
                     console.log(`Could not update tab ${tab.id}:`, error.message);
                 }
             }
             
-            // Also send to background script
             chrome.runtime.sendMessage({
                 action: 'updateSetting',
                 setting: 'floatingBtn',
@@ -131,7 +125,6 @@ class PopupController {
         }
     }
 
-    // Auto-summarize toggle
     async handleAutoSummarizeToggle(isActive) {
         try {
             chrome.runtime.sendMessage({
@@ -151,7 +144,6 @@ class PopupController {
         }
     }
 
-    // Context menu toggle
     async handleContextMenuToggle(isActive) {
         try {
             chrome.runtime.sendMessage({
@@ -171,10 +163,8 @@ class PopupController {
         }
     }
 
-    // Dark mode toggle
     async handleDarkModeToggle(isActive) {
         try {
-            // Apply dark mode to popup immediately
             if (isActive) {
                 document.body.style.background = 'linear-gradient(135deg, #2d3748 0%, #1a202c 100%)';
                 document.body.style.color = '#e2e8f0';
@@ -183,7 +173,6 @@ class PopupController {
                 document.body.style.color = 'white';
             }
             
-            // Send to content scripts
             const tabs = await chrome.tabs.query({});
             for (const tab of tabs) {
                 try {
@@ -204,7 +193,6 @@ class PopupController {
         }
     }
 
-    // Show temporary message
     showTemporaryMessage(message) {
         const messageDiv = document.createElement('div');
         messageDiv.style.cssText = `
@@ -222,7 +210,6 @@ class PopupController {
         `;
         messageDiv.textContent = message;
         
-        // Add animation
         const style = document.createElement('style');
         style.textContent = `
             @keyframes fadeInOut {
@@ -237,34 +224,27 @@ class PopupController {
         document.body.appendChild(messageDiv);
         
         setTimeout(() => {
-            if (messageDiv.parentNode) {
-                messageDiv.remove();
-            }
-            if (style.parentNode) {
-                style.remove();
-            }
+            if (messageDiv.parentNode) messageDiv.remove();
+            if (style.parentNode) style.remove();
         }, 3000);
     }
 
     selectFeature(card) {
-        // Remove active class from all cards
         document.querySelectorAll('.feature-card').forEach(c => c.classList.remove('active'));
         card.classList.add('active');
-        
-        // Store selected mode
         chrome.storage.local.set({ summaryMode: card.id });
     }
 
+    // FIXED: Regular summary method
     async handleSummarize() {
         try {
-            this.showLoading(true);
+            this.showLoading(true, 'summary');
             
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            
-            // Get current summary mode
             const result = await chrome.storage.local.get(['summaryMode']);
             const mode = result.summaryMode || 'pageSum';
             
+            // Send message to content script for summarization
             chrome.tabs.sendMessage(tab.id, {
                 action: 'summarize',
                 mode: mode
@@ -288,28 +268,104 @@ class PopupController {
         }
     }
 
+    // FIXED: Separate key points method with improved handling
     async handleKeyPoints() {
         try {
-            this.showLoading(true);
+            this.showLoading(true, 'keypoints');
             
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             
+            // Get page content first
             chrome.tabs.sendMessage(tab.id, {
-                action: 'extractKeyPoints'
-            }, (response) => {
-                this.showLoading(false);
+                action: 'getPageContent'
+            }, async (contentResponse) => {
                 if (chrome.runtime.lastError) {
+                    this.showLoading(false);
                     this.displaySummary('❌ Error: Could not communicate with the page. Please refresh and try again.');
                     return;
                 }
                 
-                if (response && response.success) {
-                    this.displaySummary(response.keyPoints);
-                    this.updateStats();
+                // Get content or fall back to getting it from page
+                let content = '';
+                if (contentResponse && contentResponse.content) {
+                    content = contentResponse.content;
                 } else {
-                    this.displaySummary('❌ Unable to extract key points from this content. ' + (response?.error || ''));
+                    // Fallback: inject script to get content
+                    try {
+                        const results = await chrome.scripting.executeScript({
+                            target: { tabId: tab.id },
+                            func: () => {
+                                // Get page content
+                                const contentSelectors = [
+                                    'article',
+                                    '[role="main"]',
+                                    '.content',
+                                    '.post-content',
+                                    '.entry-content',
+                                    '.article-content',
+                                    'main',
+                                    '.main-content'
+                                ];
+
+                                let content = '';
+                                for (const selector of contentSelectors) {
+                                    const element = document.querySelector(selector);
+                                    if (element) {
+                                        content = element.textContent || element.innerText || '';
+                                        break;
+                                    }
+                                }
+
+                                if (!content) {
+                                    content = document.body ? (document.body.textContent || document.body.innerText || '') : '';
+                                }
+
+                                return content.replace(/\s+/g, ' ').trim();
+                            }
+                        });
+                        
+                        if (results && results[0] && results[0].result) {
+                            content = results[0].result;
+                        }
+                    } catch (scriptError) {
+                        console.error('Error getting content:', scriptError);
+                        this.showLoading(false);
+                        this.displaySummary('❌ Could not access page content. Please ensure the page is fully loaded.');
+                        return;
+                    }
                 }
+                
+                if (!content || content.length < 50) {
+                    this.showLoading(false);
+                    this.displaySummary('❌ Insufficient content to extract key points from.');
+                    return;
+                }
+                
+                // Send directly to background script for key points extraction
+                chrome.runtime.sendMessage({
+                    action: 'getKeyPoints',
+                    content: content,
+                    options: {
+                        length: 'medium',
+                        style: 'bullet'
+                    }
+                }, (response) => {
+                    this.showLoading(false);
+                    
+                    if (chrome.runtime.lastError) {
+                        this.displaySummary('❌ Error processing key points: ' + chrome.runtime.lastError.message);
+                        return;
+                    }
+                    
+                    if (response && response.success) {
+                        this.displaySummary(response.keyPoints, 'keypoints');
+                        this.updateStats();
+                    } else {
+                        this.displaySummary('❌ Unable to extract key points from this content. ' + (response?.error || ''));
+                    }
+                });
             });
+            
         } catch (error) {
             this.showLoading(false);
             this.displaySummary('❌ Error: ' + error.message);
@@ -317,7 +373,9 @@ class PopupController {
     }
 
     handleCopy() {
-        const summaryText = document.getElementById('summaryText').textContent;
+        const summaryTextElement = document.getElementById('summaryText');
+        const summaryText = summaryTextElement.textContent || summaryTextElement.innerText;
+        
         navigator.clipboard.writeText(summaryText).then(() => {
             const btn = document.getElementById('copyBtn');
             const originalText = btn.textContent;
@@ -364,7 +422,6 @@ class PopupController {
         if (confirm('Are you sure you want to clear all data? This cannot be undone.')) {
             try {
                 await chrome.storage.local.clear();
-                // Don't clear sync storage as it contains user settings
                 await this.loadStats();
                 this.showTemporaryMessage('Data cleared successfully!');
             } catch (error) {
@@ -374,30 +431,76 @@ class PopupController {
         }
     }
 
-    showLoading(show) {
+    showLoading(show, type = 'summary') {
         const loading = document.getElementById('loadingIndicator');
         const result = document.getElementById('summaryResult');
         
         if (show) {
             loading.classList.remove('hidden');
             result.classList.add('hidden');
+            
+            // Update loading text based on type
+            const loadingText = loading.querySelector('span');
+            if (loadingText) {
+                if (type === 'keypoints') {
+                    loadingText.textContent = 'Extracting key points...';
+                } else {
+                    loadingText.textContent = 'Analyzing content...';
+                }
+            }
         } else {
             loading.classList.add('hidden');
         }
     }
 
-    displaySummary(summary) {
+    // FIXED: Better display formatting for key points
+    displaySummary(summary, type = 'summary') {
         const resultDiv = document.getElementById('summaryResult');
         const textDiv = document.getElementById('summaryText');
         
-        textDiv.textContent = summary;
+        if (type === 'keypoints') {
+            // Format key points as HTML for better display
+            const formattedKeyPoints = this.formatKeyPointsForPopup(summary);
+            textDiv.innerHTML = formattedKeyPoints;
+        } else {
+            textDiv.textContent = summary;
+        }
+        
         resultDiv.classList.remove('hidden');
         
-        // Save to history
-        this.saveSummaryToHistory(summary);
+        this.saveSummaryToHistory(summary, type);
     }
 
-    async saveSummaryToHistory(summary) {
+    // FIXED: Format key points properly for popup display
+    formatKeyPointsForPopup(keyPoints) {
+        if (!keyPoints) return '';
+        
+        // Split by bullet points or double newlines
+        let points = keyPoints.split(/\n\s*\n/).filter(point => point.trim().length > 0);
+        
+        // If no double newlines, try single newlines with bullets
+        if (points.length <= 1) {
+            points = keyPoints.split('\n').filter(point => point.trim().length > 0);
+        }
+        
+        // Clean up bullet points and format as HTML
+        const formattedPoints = points.map(point => {
+            // Remove existing bullets and clean up
+            const cleanPoint = point.replace(/^[•·\-\*\s]+/, '').trim();
+            
+            if (cleanPoint.length > 10) {
+                return `<div style="display: flex; align-items: flex-start; margin-bottom: 8px; line-height: 1.4;">
+                    <span style="color: #4ecdc4; font-weight: bold; margin-right: 8px; margin-top: 2px;">•</span>
+                    <span>${cleanPoint}</span>
+                </div>`;
+            }
+            return '';
+        }).filter(point => point.length > 0);
+        
+        return formattedPoints.join('');
+    }
+
+    async saveSummaryToHistory(summary, type = 'summary') {
         try {
             const data = await chrome.storage.local.get(['summaryHistory']);
             const history = data.summaryHistory || [];
@@ -406,12 +509,12 @@ class PopupController {
             
             history.unshift({
                 summary: summary,
+                type: type,
                 timestamp: Date.now(),
                 url: tab?.url || 'unknown',
                 title: tab?.title || 'Unknown Page'
             });
             
-            // Keep only last 100 summaries
             if (history.length > 100) {
                 history.splice(100);
             }
@@ -428,8 +531,7 @@ class PopupController {
             const history = data.summaryHistory || [];
             const wordsProcessed = data.totalWordsProcessed || 0;
             
-            // Update word count (estimate)
-            const newWords = 150; // Average words saved per summary
+            const newWords = 150;
             await chrome.storage.local.set({ 
                 totalWordsProcessed: wordsProcessed + newWords 
             });
@@ -451,7 +553,6 @@ class PopupController {
             document.getElementById('wordsProcessed').textContent = this.formatNumber(wordsProcessed);
         } catch (error) {
             console.error('Error loading stats:', error);
-            // Set default values
             document.getElementById('totalSummaries').textContent = '0';
             document.getElementById('timesSaved').textContent = '0m';
             document.getElementById('wordsProcessed').textContent = '0';
@@ -475,7 +576,6 @@ class PopupController {
                 'geminiApiKey'
             ]);
             
-            // Update toggle states based on stored settings
             Object.keys(settings).forEach(key => {
                 const toggle = document.getElementById(key);
                 if (toggle) {
@@ -487,22 +587,18 @@ class PopupController {
                 }
             });
             
-            // Load AI provider
             const providerSelect = document.getElementById('aiProvider');
             if (providerSelect && settings.aiProvider) {
                 providerSelect.value = settings.aiProvider;
             }
             
-            // Show/hide Gemini config
             this.toggleGeminiConfig(settings.aiProvider === 'gemini');
             
-            // Load API key status
             const apiKeyInput = document.getElementById('geminiApiKey');
             if (apiKeyInput && settings.geminiApiKey) {
                 apiKeyInput.placeholder = '••••••••••••••••';
             }
             
-            // Apply dark mode if enabled
             if (settings.darkMode) {
                 document.body.style.background = 'linear-gradient(135deg, #2d3748 0%, #1a202c 100%)';
                 document.body.style.color = '#e2e8f0';
@@ -517,6 +613,12 @@ class PopupController {
         const provider = e.target.value;
         chrome.storage.sync.set({ aiProvider: provider });
         this.toggleGeminiConfig(provider === 'gemini');
+        
+        if (provider === 'gemini') {
+            this.showTemporaryMessage('Gemini AI enabled! Make sure to add your API key below.');
+        } else {
+            this.showTemporaryMessage('Using local processing - works offline!');
+        }
     }
 
     toggleGeminiConfig(show) {
@@ -535,16 +637,15 @@ class PopupController {
             return;
         }
         
-        // Validate API key format (basic check)
-        if (!apiKey.startsWith('AI') || apiKey.length < 20) {
-            this.showTemporaryMessage('Invalid API key format. Please check your Gemini API key.');
+        // Basic validation for Gemini API key format
+        if (!apiKey.startsWith('AIza') || apiKey.length < 30) {
+            this.showTemporaryMessage('Invalid API key format. Gemini keys start with "AIza" and are longer.');
             return;
         }
         
         try {
             await chrome.storage.sync.set({ geminiApiKey: apiKey });
             
-            // Clear input and show success
             apiKeyInput.value = '';
             apiKeyInput.placeholder = '••••••••••••••••';
             
@@ -555,13 +656,19 @@ class PopupController {
                 saveBtn.textContent = originalText;
             }, 2000);
             
-            // Send message to background script to update API service
+            // Test the API key
             chrome.runtime.sendMessage({
                 action: 'updateApiKey',
                 apiKey: apiKey
+            }, (response) => {
+                if (chrome.runtime.lastError) {
+                    this.showTemporaryMessage('API key saved but could not test connection.');
+                } else if (response && response.success) {
+                    this.showTemporaryMessage('API key saved and validated successfully!');
+                } else {
+                    this.showTemporaryMessage('API key saved but validation failed.');
+                }
             });
-            
-            this.showTemporaryMessage('API key saved successfully!');
             
         } catch (error) {
             console.error('Error saving API key:', error);
@@ -582,7 +689,6 @@ class PopupController {
     }
 }
 
-// Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     new PopupController();
 });

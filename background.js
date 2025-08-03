@@ -1,66 +1,158 @@
-// AI Summarizer Pro - Background Script
-
-// Import AI Service functionality directly
+// AI Summarizer Pro - Background Script (COMPLETELY FIXED)
 
 class AIService {
     constructor() {
         this.apiKey = null;
-        this.baseURL ='https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+        this.baseURL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
     }
 
     async setApiKey(apiKey) {
         this.apiKey = apiKey;
         await chrome.storage.sync.set({ geminiApiKey: apiKey });
+        console.log('API Key set:', apiKey ? 'Yes' : 'No');
     }
 
     async summarizeWithGemini(content, options = {}) {
         if (!this.apiKey) {
+            console.log('No API key available');
             throw new Error('Gemini API key not configured');
         }
 
-        const { length = 'medium', style = 'informative', language = 'en' } = options;
-        const prompt = this.createSummarizationPrompt(content, length, style, language);
+        const { length = 'medium', style = 'informative', language = 'en', type = 'summary' } = options;
+        
+        let prompt;
+        if (type === 'keypoints') {
+            prompt = `Extract key points from the following content and format them as a clean bullet list. Follow these rules:
+
+1. Extract 6-10 most important points
+2. Each point should be substantial and informative (15-50 words)
+3. Format as bullet points with each point on a new line
+4. Start each point with a bullet (•) followed by a space
+5. Focus on main ideas, important facts, conclusions, and actionable insights
+6. Avoid redundancy and filler content
+
+Content:
+${content}
+
+Key Points:`;
+        } else {
+            const lengthGuide = {
+                'short': 'in 2-3 concise sentences',
+                'medium': 'in 1-2 well-structured paragraphs', 
+                'long': 'in 3-4 detailed paragraphs'
+            };
+
+            prompt = `Summarize the following content ${lengthGuide[length]}. Focus on the main points, key information, and important conclusions. Be clear and informative.
+
+Content:
+${content}
+
+Summary:`;
+        }
 
         try {
+            console.log('Making Gemini API call...');
+            console.log('API URL:', `${this.baseURL}?key=${this.apiKey.substring(0, 10)}...`);
+            
+            const requestBody = {
+                contents: [{
+                    parts: [{
+                        text: prompt
+                    }]
+                }],
+                generationConfig: {
+                    temperature: 0.3,
+                    topK: 40,
+                    topP: 0.95,
+                    maxOutputTokens: type === 'keypoints' ? 1500 : 1000,
+                    candidateCount: 1
+                },
+                safetySettings: [
+                    {
+                        category: "HARM_CATEGORY_HARASSMENT",
+                        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_HATE_SPEECH",
+                        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                    },
+                    {
+                        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        threshold: "BLOCK_MEDIUM_AND_ABOVE"
+                    }
+                ]
+            };
+
+            console.log('Request body:', JSON.stringify(requestBody, null, 2));
+
             const response = await fetch(`${this.baseURL}?key=${this.apiKey}`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        temperature: 0.3,
-                        topK: 40,
-                        topP: 0.95,
-                        maxOutputTokens: this.getMaxTokens(length),
-                    }
-                })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
             });
 
+            console.log('Response status:', response.status);
+            console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorText = await response.text();
+                console.log('Error response:', errorText);
+                
+                let errorData;
+                try {
+                    errorData = JSON.parse(errorText);
+                } catch {
+                    errorData = { error: { message: `HTTP ${response.status}: ${response.statusText}` } };
+                }
                 throw new Error(`Gemini API Error: ${errorData.error?.message || 'Unknown error'}`);
             }
 
             const data = await response.json();
-            const summary = data.candidates[0]?.content?.parts[0]?.text;
-
-            if (!summary) {
-                throw new Error('No summary generated');
+            console.log('API Response:', JSON.stringify(data, null, 2));
+            
+            if (!data.candidates || data.candidates.length === 0) {
+                throw new Error('No candidates in response from Gemini API');
             }
+
+            const candidate = data.candidates[0];
+            
+            if (candidate.finishReason === 'SAFETY') {
+                throw new Error('Content was blocked by safety filters');
+            }
+
+            if (!candidate.content || !candidate.content.parts || candidate.content.parts.length === 0) {
+                throw new Error('No content in response from Gemini API');
+            }
+
+            const result = candidate.content.parts[0].text;
+
+            if (!result) {
+                throw new Error('Empty response from Gemini API');
+            }
+
+            console.log('Gemini success! Result length:', result.length);
 
             return {
                 success: true,
-                summary: summary.trim(),
+                summary: result.trim(),
                 provider: 'gemini',
                 metadata: {
                     originalLength: content.length,
-                    summaryLength: summary.length,
-                    model: 'gemini-pro',
-                    processingTime: Date.now()
+                    summaryLength: result.length,
+                    model: 'gemini-1.5-flash',
+                    processingTime: Date.now(),
+                    type: type
                 }
             };
 
         } catch (error) {
+            console.error('Gemini API Error Details:', error);
             return {
                 success: false,
                 error: error.message,
@@ -69,40 +161,9 @@ class AIService {
         }
     }
 
-    createSummarizationPrompt(content, length, style, language) {
-        const lengthInstructions = {
-            'short': 'in 2-3 sentences',
-            'medium': 'in 1-2 paragraphs',
-            'long': 'in 3-4 detailed paragraphs'
-        };
-
-        const styleInstructions = {
-            'informative': 'Focus on key facts and main points',
-            'analytical': 'Provide analysis and insights',
-            'casual': 'Use simple, conversational language',
-            'academic': 'Use formal, scholarly tone',
-            'bullet': 'Format as bullet points'
-        };
-
-        return `Please summarize the following content ${lengthInstructions[length] || 'concisely'}. ${styleInstructions[style] || 'Focus on key facts and main points'}. Respond in ${language === 'en' ? 'English' : language}.
-
-Content to summarize:
-${content}
-
-Summary:`;
-    }
-
-    getMaxTokens(length) {
-        switch (length) {
-            case 'short': return 512;
-            case 'medium': return 1024;
-            case 'long': return 2048;
-            default: return 1024;
-        }
-    }
-
     async generateSummary(content, options = {}) {
-        // Add content validation
+        console.log('generateSummary called with content length:', content.length);
+        
         if (!content || typeof content !== 'string' || content.trim().length < 20) {
             return {
                 success: false,
@@ -111,18 +172,61 @@ Summary:`;
         }
 
         const settings = await chrome.storage.sync.get(['aiProvider', 'geminiApiKey']);
+        console.log('Settings:', settings);
         
+        // Try Gemini first if configured
         if (settings.aiProvider === 'gemini' && settings.geminiApiKey) {
             this.apiKey = settings.geminiApiKey;
+            console.log('Using Gemini API with key:', this.apiKey ? 'Available' : 'Missing');
+            
             const result = await this.summarizeWithGemini(content, options);
             if (result.success) {
+                console.log('Gemini API success');
                 return result;
             }
             console.warn('Gemini failed, falling back to local processing:', result.error);
+        } else {
+            console.log('Using local processing - no Gemini configured');
         }
 
         // Fallback to local processing
         return this.localSummarize(content, options);
+    }
+
+    async extractKeyPoints(content, options = {}) {
+        console.log('extractKeyPoints called with content length:', content.length);
+        
+        if (!content || typeof content !== 'string' || content.trim().length < 20) {
+            return {
+                success: false,
+                error: 'Insufficient content to extract key points from.'
+            };
+        }
+
+        const settings = await chrome.storage.sync.get(['aiProvider', 'geminiApiKey']);
+        
+        // Try Gemini first if configured
+        if (settings.aiProvider === 'gemini' && settings.geminiApiKey) {
+            this.apiKey = settings.geminiApiKey;
+            console.log('Using Gemini API for key points with key:', this.apiKey ? 'Available' : 'Missing');
+            
+            const result = await this.summarizeWithGemini(content, { ...options, type: 'keypoints' });
+            if (result.success) {
+                console.log('Gemini API key points success');
+                return {
+                    success: true,
+                    keyPoints: result.summary,
+                    provider: 'gemini',
+                    metadata: result.metadata
+                };
+            }
+            console.warn('Gemini failed for key points, falling back to local processing:', result.error);
+        } else {
+            console.log('Using local key points extraction - no Gemini configured');
+        }
+
+        // Fallback to local key point extraction
+        return this.localExtractKeyPoints(content, options);
     }
 
     localSummarize(content, options = {}) {
@@ -141,21 +245,6 @@ Summary:`;
         const sentences = cleanContent.match(/[^.!?]+[.!?]+/g) || [];
         
         if (sentences.length === 0) {
-            // Fallback: split by periods if no proper sentences found
-            const fallbackSentences = cleanContent.split('.').filter(s => s.trim().length > 10);
-            if (fallbackSentences.length > 0) {
-                return {
-                    success: true,
-                    summary: fallbackSentences.slice(0, 3).join('. ').trim() + '.',
-                    provider: 'local',
-                    metadata: {
-                        originalLength: content.length,
-                        summaryLength: fallbackSentences.slice(0, 3).join('. ').length,
-                        processingTime: Date.now()
-                    }
-                };
-            }
-            
             return {
                 success: false,
                 error: 'Unable to process this content for summarization.'
@@ -181,24 +270,20 @@ Summary:`;
             const words = sentence.toLowerCase().split(/\s+/);
             const wordCount = words.length;
 
-            // Length scoring - prefer medium length sentences
+            // Length scoring
             if (wordCount >= 8 && wordCount <= 30) score += 3;
             else if (wordCount >= 5 && wordCount <= 40) score += 1;
-            else if (wordCount < 5) score -= 2; // Penalize very short sentences
 
             // Position scoring
             const relativePosition = index / sentences.length;
-            if (relativePosition <= 0.1) score += 3; // Beginning
-            if (relativePosition >= 0.9) score += 2; // End
-            if (relativePosition >= 0.4 && relativePosition <= 0.6) score += 1; // Middle
+            if (relativePosition <= 0.1) score += 3;
+            if (relativePosition >= 0.9) score += 2;
 
             // Keyword scoring
             const importantTerms = [
                 'important', 'significant', 'key', 'main', 'primary', 'essential', 'crucial',
                 'conclusion', 'result', 'finding', 'discovered', 'revealed', 'shows', 'indicates',
-                'however', 'therefore', 'because', 'since', 'thus', 'consequently', 'moreover',
-                'first', 'second', 'third', 'finally', 'lastly', 'additionally', 'furthermore',
-                'research', 'study', 'analysis', 'data', 'evidence', 'proof', 'demonstrates'
+                'however', 'therefore', 'because', 'since', 'thus', 'consequently'
             ];
 
             importantTerms.forEach(term => {
@@ -206,30 +291,19 @@ Summary:`;
             });
 
             // Numeric data scoring
-            if (/\d+(\.\d+)?%/.test(sentence)) score += 2; // Percentages
-            if (/\$\d+/.test(sentence)) score += 1; // Money
-            if (/\d{4}/.test(sentence)) score += 1; // Years
-
-            // Question and exclamation penalties (usually less informative)
-            if (sentence.includes('?')) score -= 1;
-            if (sentence.includes('!') && !sentence.toLowerCase().includes('important')) score -= 0.5;
+            if (/\d+(\.\d+)?%/.test(sentence)) score += 2;
+            if (/\$\d+/.test(sentence)) score += 1;
 
             return { sentence: sentence.trim(), score, index };
         });
 
-        // Select top sentences
         const selectedSentences = sentenceScores
             .sort((a, b) => b.score - a.score)
             .slice(0, targetSentences)
             .sort((a, b) => a.index - b.index)
             .map(item => item.sentence);
 
-        let summary = selectedSentences.join(' ').replace(/\s+/g, ' ').trim();
-
-        // Ensure minimum length and quality
-        if (summary.length < 50 && sentences.length > 0) {
-            summary = sentences.slice(0, Math.min(3, sentences.length)).join(' ').trim();
-        }
+        const summary = selectedSentences.join(' ').replace(/\s+/g, ' ').trim();
 
         return {
             success: true,
@@ -239,8 +313,201 @@ Summary:`;
                 originalLength: content.length,
                 summaryLength: summary.length,
                 processingTime: Date.now(),
-                sentencesUsed: selectedSentences.length,
-                totalSentences: sentences.length
+                type: 'summary'
+            }
+        };
+    }
+
+    // FIXED: Improved local key points extraction with better formatting
+    localExtractKeyPoints(content, options = {}) {
+        const { length = 'medium' } = options;
+        const cleanContent = content.replace(/\s+/g, ' ').trim();
+        
+        if (cleanContent.length < 20) {
+            return {
+                success: false,
+                error: 'Content too short to extract key points from.'
+            };
+        }
+
+        // Split into sentences and paragraphs for better analysis
+        const sentences = cleanContent.match(/[^.!?]+[.!?]+/g) || [];
+        const paragraphs = cleanContent.split(/\n\s*\n/).filter(p => p.trim().length > 50);
+        
+        const keyPoints = [];
+
+        // Enhanced patterns for key point detection
+        const patterns = [
+            // Strong indicators (high weight)
+            { regex: /(?:key|main|important|significant|primary|essential|critical|crucial|major)\s+(?:point|finding|result|conclusion|factor|aspect|benefit|advantage|problem|issue)/i, weight: 6 },
+            { regex: /(?:research shows|study found|analysis reveals|data indicates|evidence suggests|findings show|results demonstrate)/i, weight: 5 },
+            { regex: /(?:first|second|third|fourth|fifth|finally|lastly|in conclusion|to conclude|most importantly|significantly)/i, weight: 5 },
+            
+            // Medium indicators
+            { regex: /(?:leads to|results in|causes|improves|increases|decreases|reduces|affects|impacts|influences)/i, weight: 4 },
+            { regex: /(?:recommended|suggests|proposes|should|must|need to|important to|necessary to)/i, weight: 4 },
+            { regex: /(?:percentage|percent|rate|ratio|statistics|data shows|numbers indicate)/i, weight: 4 },
+            
+            // Numbers and statistics
+            { regex: /\d+(\.\d+)?%/, weight: 3 },
+            { regex: /\$\d+(?:,\d{3})*(?:\.\d{2})?/, weight: 3 },
+            { regex: /\d+(?:,\d{3})*\s+(?:people|users|customers|participants|respondents|cases)/, weight: 4 }
+        ];
+
+        // Score sentences
+        sentences.forEach((sentence, index) => {
+            const trimmed = sentence.trim();
+            if (trimmed.length < 25 || trimmed.length > 200) return;
+
+            let score = 0;
+            let matchedPatterns = [];
+
+            patterns.forEach(pattern => {
+                if (pattern.regex.test(trimmed)) {
+                    score += pattern.weight;
+                    matchedPatterns.push(pattern.regex.source.substring(0, 20));
+                }
+            });
+
+            // Position scoring (beginning and end are more important)
+            const position = index / sentences.length;
+            if (position <= 0.15) score += 3; // Beginning
+            if (position >= 0.85) score += 2; // End
+            if (position >= 0.4 && position <= 0.6) score += 1; // Middle
+
+            // Length bonus for substantial sentences
+            if (trimmed.length >= 40 && trimmed.length <= 120) score += 2;
+
+            // Avoid promotional/marketing language
+            if (/(?:click here|visit|subscribe|buy now|purchase|offer|deal|discount|advertisement)/i.test(trimmed)) {
+                score -= 4;
+            }
+
+            // Boost sentences with multiple key indicators
+            if (matchedPatterns.length > 1) score += 2;
+
+            if (score >= 5) {
+                keyPoints.push({
+                    text: trimmed,
+                    score: score,
+                    patterns: matchedPatterns,
+                    index: index
+                });
+            }
+        });
+
+        // If not enough from sentences, try paragraph analysis
+        if (keyPoints.length < 4) {
+            paragraphs.forEach((paragraph, paragraphIndex) => {
+                const paragraphSentences = paragraph.match(/[^.!?]+[.!?]+/g) || [];
+                if (paragraphSentences.length > 0) {
+                    const firstSentence = paragraphSentences[0].trim();
+                    if (firstSentence.length >= 30 && firstSentence.length <= 150) {
+                        let score = 3; // Base score for paragraph first sentences
+                        
+                        patterns.forEach(pattern => {
+                            if (pattern.regex.test(firstSentence)) {
+                                score += pattern.weight;
+                            }
+                        });
+
+                        // Boost early paragraphs
+                        if (paragraphIndex <= 2) score += 2;
+
+                        if (score >= 4) {
+                            keyPoints.push({
+                                text: firstSentence,
+                                score: score,
+                                patterns: ['paragraph-start'],
+                                index: paragraphIndex * 1000 // Ensure sorting works
+                            });
+                        }
+                    }
+                }
+            });
+        }
+
+        // Sort by score, then by position to maintain some document order
+        keyPoints.sort((a, b) => {
+            if (Math.abs(a.score - b.score) <= 1) {
+                return a.index - b.index; // Maintain document order for similar scores
+            }
+            return b.score - a.score; // Higher score first
+        });
+        
+        let maxPoints;
+        switch (length) {
+            case 'short': maxPoints = 5; break;
+            case 'long': maxPoints = 10; break;
+            default: maxPoints = 7; break;
+        }
+
+        // Remove duplicates and very similar points
+        const uniquePoints = [];
+        const usedWords = new Set();
+        
+        for (const point of keyPoints) {
+            const words = point.text.toLowerCase().split(/\s+/).filter(w => w.length > 3);
+            const pointWords = new Set(words);
+            
+            // Check for significant overlap with existing points
+            let hasSignificantOverlap = false;
+            for (const existingWords of usedWords) {
+                const intersection = new Set([...pointWords].filter(x => existingWords.has(x)));
+                if (intersection.size > Math.min(pointWords.size, existingWords.size) * 0.6) {
+                    hasSignificantOverlap = true;
+                    break;
+                }
+            }
+            
+            if (!hasSignificantOverlap && uniquePoints.length < maxPoints) {
+                uniquePoints.push(point);
+                usedWords.add(pointWords);
+            }
+        }
+
+        // Format as proper bullet points
+        const finalKeyPoints = uniquePoints.map(point => {
+            let text = point.text;
+            // Ensure proper punctuation
+            if (!text.endsWith('.') && !text.endsWith('!') && !text.endsWith('?')) {
+                text += '.';
+            }
+            return `• ${text}`;
+        });
+
+        // Fallback if still no good points
+        if (finalKeyPoints.length === 0) {
+            const meaningfulSentences = sentences
+                .filter(s => {
+                    const trimmed = s.trim();
+                    return trimmed.length >= 30 && 
+                           trimmed.length <= 150 && 
+                           !/(?:click|visit|subscribe|copyright|terms|privacy|advertisement)/i.test(trimmed);
+                })
+                .slice(0, 5);
+            
+            finalKeyPoints.push(...meaningfulSentences.map(s => {
+                let text = s.trim();
+                if (!text.endsWith('.') && !text.endsWith('!') && !text.endsWith('?')) {
+                    text += '.';
+                }
+                return `• ${text}`;
+            }));
+        }
+
+        // Join with double newlines for better formatting
+        const result = finalKeyPoints.join('\n\n');
+
+        return {
+            success: true,
+            keyPoints: result || '• Could not extract meaningful key points from this content.',
+            provider: 'local',
+            metadata: {
+                originalLength: content.length,
+                keyPointsCount: finalKeyPoints.length,
+                processingTime: Date.now(),
+                type: 'keypoints'
             }
         };
     }
@@ -253,38 +520,31 @@ class BackgroundService {
     }
 
     init() {
-        // Install/Update handler
         chrome.runtime.onInstalled.addListener((details) => {
             this.handleInstall(details);
         });
 
-        // Message handler - CRITICAL FIX
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return this.handleMessage(request, sender, sendResponse);
         });
 
-        // Context menu handler
         chrome.contextMenus.onClicked.addListener((info, tab) => {
             this.handleContextMenu(info, tab);
         });
 
-        // Tab update handler for auto-summarization
         chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             this.handleTabUpdate(tabId, changeInfo, tab);
         });
 
-        // Storage change handler
         chrome.storage.onChanged.addListener((changes, namespace) => {
             this.handleStorageChange(changes, namespace);
         });
 
-        // Setup context menus
         this.setupContextMenus();
     }
 
     async handleInstall(details) {
         if (details.reason === 'install') {
-            // Set default settings
             await chrome.storage.sync.set({
                 autoSummarize: false,
                 floatingBtn: true,
@@ -295,7 +555,6 @@ class BackgroundService {
                 geminiApiKey: ''
             });
 
-            // Initialize stats
             await chrome.storage.local.set({
                 totalSummaries: 0,
                 totalWordsProcessed: 0,
@@ -303,14 +562,12 @@ class BackgroundService {
                 savedSummaries: []
             });
 
-            // Open welcome page
             chrome.tabs.create({
                 url: chrome.runtime.getURL('welcome.html')
             });
         }
     }
 
-    // CRITICAL FIX: Proper async message handling
     handleMessage(request, sender, sendResponse) {
         switch (request.action) {
             case 'updateSetting':
@@ -324,7 +581,7 @@ class BackgroundService {
                 }).catch(error => {
                     sendResponse({ success: false, error: error.message });
                 });
-                return true; // Keep message channel open
+                return true;
                 
             case 'getSummary':
                 this.generateSummary(request.content, request.options)
@@ -338,7 +595,21 @@ class BackgroundService {
                             provider: 'error'
                         });
                     });
-                return true; // Keep message channel open
+                return true;
+                
+            case 'getKeyPoints':
+                this.extractKeyPoints(request.content, request.options)
+                    .then(result => {
+                        sendResponse(result);
+                    })
+                    .catch(error => {
+                        sendResponse({
+                            success: false,
+                            error: error.message,
+                            provider: 'error'
+                        });
+                    });
+                return true;
                 
             case 'getStats':
                 this.getStats().then(stats => {
@@ -357,15 +628,50 @@ class BackgroundService {
         await this.aiService.setApiKey(apiKey);
     }
 
+    async generateSummary(content, options = {}) {
+        try {
+            const result = await this.aiService.generateSummary(content, options);
+            
+            if (result.success) {
+                await this.updateStats(content, result.summary);
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('Summary generation error:', error);
+            return {
+                success: false,
+                error: error.message,
+                provider: 'error'
+            };
+        }
+    }
+
+    async extractKeyPoints(content, options = {}) {
+        try {
+            const result = await this.aiService.extractKeyPoints(content, options);
+            
+            if (result.success) {
+                await this.updateStats(content, result.keyPoints);
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('Key points extraction error:', error);
+            return {
+                success: false,
+                error: error.message,
+                provider: 'error'
+            };
+        }
+    }
+
     async setupContextMenus() {
         try {
-            // Remove existing menus
             await chrome.contextMenus.removeAll();
-
             const settings = await chrome.storage.sync.get(['contextMenu']);
             
             if (settings.contextMenu !== false) {
-                // Main menu
                 chrome.contextMenus.create({
                     id: 'summarize-page',
                     title: '✨ Summarize this page',
@@ -379,21 +685,9 @@ class BackgroundService {
                 });
 
                 chrome.contextMenus.create({
-                    id: 'separator1',
-                    type: 'separator',
-                    contexts: ['page', 'selection']
-                });
-
-                chrome.contextMenus.create({
                     id: 'extract-keypoints',
                     title: '🔑 Extract key points',
                     contexts: ['page', 'selection']
-                });
-
-                chrome.contextMenus.create({
-                    id: 'quick-summary',
-                    title: '⚡ Quick summary',
-                    contexts: ['page']
                 });
             }
         } catch (error) {
@@ -413,9 +707,6 @@ class BackgroundService {
                 case 'extract-keypoints':
                     await this.executeContentScript(tab.id, 'extractKeyPoints', info.selectionText);
                     break;
-                case 'quick-summary':
-                    await this.executeContentScript(tab.id, 'quickSummary');
-                    break;
             }
         } catch (error) {
             console.error('Context menu error:', error);
@@ -433,13 +724,10 @@ class BackgroundService {
                                 window.aiSummarizer.showQuickSummary();
                                 break;
                             case 'summarizeSelection':
-                                window.aiSummarizer.summarizeText(data);
+                                window.aiSummarizer.summarizeSelection(data);
                                 break;
                             case 'extractKeyPoints':
-                                window.aiSummarizer.extractKeyPoints(data);
-                                break;
-                            case 'quickSummary':
-                                window.aiSummarizer.quickSummary();
+                                window.aiSummarizer.extractKeyPointsFromSelection(data);
                                 break;
                         }
                     }
@@ -456,9 +744,7 @@ class BackgroundService {
             const settings = await chrome.storage.sync.get(['autoSummarize']);
             
             if (settings.autoSummarize) {
-                // Check if it's a readable page
                 if (this.isReadablePage(tab.url)) {
-                    // Delay to let page load completely
                     setTimeout(() => {
                         this.executeContentScript(tabId, 'autoSummarize');
                     }, 2000);
@@ -495,7 +781,6 @@ class BackgroundService {
     async updateSetting(setting, value) {
         await chrome.storage.sync.set({ [setting]: value });
         
-        // Handle setting changes
         switch (setting) {
             case 'contextMenu':
                 await this.setupContextMenus();
@@ -506,27 +791,6 @@ class BackgroundService {
     async handleStorageChange(changes, namespace) {
         if (namespace === 'sync' && changes.contextMenu) {
             await this.setupContextMenus();
-        }
-    }
-
-    async generateSummary(content, options = {}) {
-        try {
-            // Use AI service for summarization
-            const result = await this.aiService.generateSummary(content, options);
-            
-            if (result.success) {
-                // Update stats
-                await this.updateStats(content, result.summary);
-            }
-            
-            return result;
-        } catch (error) {
-            console.error('Summary generation error:', error);
-            return {
-                success: false,
-                error: error.message,
-                provider: 'error'
-            };
         }
     }
 
@@ -557,7 +821,7 @@ class BackgroundService {
             return {
                 totalSummaries: data.totalSummaries || 0,
                 totalWordsProcessed: data.totalWordsProcessed || 0,
-                timeSaved: Math.floor((data.totalSummaries || 0) * 2.5), // Estimate 2.5 minutes per summary
+                timeSaved: Math.floor((data.totalSummaries || 0) * 2.5),
                 historyCount: (data.summaryHistory || []).length,
                 savedCount: (data.savedSummaries || []).length
             };
@@ -574,5 +838,4 @@ class BackgroundService {
     }
 }
 
-// Initialize background service
 new BackgroundService();
